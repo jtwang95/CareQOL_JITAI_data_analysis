@@ -1,0 +1,179 @@
+---
+title: "AS_data_preprocessing"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+```
+
+
+
+## read data and add cohort type/group
+```{r,message=FALSE}
+# combine all subgroups data
+tmp = tibble()
+
+# read individual starting and ending date ( 90 days )
+ImportantDates <- read_csv("../../AS_data/Support_Files/Final_Key Date.csv") %>%
+  mutate(day01 = as.Date(day01,"%m/%d/%Y"), day90 = as.Date(day90,"%m/%d/%Y"))
+
+for (typeName in c("HCT - Control", "HCT - Intervention", "HD - Control", "HD - Intervention", "SCI - Control", "SCI - Intervention")){
+  # load participant's id, access_code and subgroup
+  dat.Participants = read_csv(paste("../../AS_data/",typeName,"/",typeName,"%2Fparticipants.csv",sep = "")) %>% 
+    mutate(Type = gsub(" ","",typeName)) %>% 
+    select(id,access_code,Type) %>% rename(participant_id = id)
+  
+  # load step count with date
+  dat.DailySteps = read_csv(paste("../../AS_data/",typeName,"/",typeName,"%2Ffitbit_daily_steps.csv",sep = "")) %>% 
+    select(participant_id,step_date,step_count) %>% 
+    rename(date = step_date)
+  
+  # load sleep minutes with date
+  dat.DailySleep = read_csv(paste("../../AS_data/",typeName,"/",typeName,"%2Ffitbit_daily_sleep.csv",sep = "")) %>% 
+    select(participant_id,sleep_date,minutes_asleep) %>% 
+    rename(date = sleep_date, sleep_count = minutes_asleep)
+  
+  # load daily survey with t-score and survey type
+  dat.DailySurvey = read_csv(paste("../../AS_data/",typeName,"/",typeName,"%2Fdaily_surveys.csv",sep = "")) %>% 
+    select(participant_id,completion_date,theta_score,standard_error,data_type,item_id) %>%
+    rename(date = completion_date)
+  
+  # load heart rate data including out_of_range_minutes, fat_burn_minutes, cardio_minutes, peak_minutes and resting_heart_rate
+  dat.DailyHeartRateZones = read_csv(paste("../../AS_data/",typeName,"/",typeName,"%2Ffitbit_heart_rate_zones.csv",sep = "")) %>%
+    select(participant_id, measurement_date,out_of_range_minutes,fat_burn_minutes,cardio_minutes,peak_minutes,total_minutes,resting_heart_rate) %>%
+    rename(date = measurement_date)
+  
+  ####################################
+  
+  dat.DailySteps <- dat.DailySteps %>% 
+    arrange(participant_id,date,desc(step_count)) %>% # remove duplicate and choose the lager daily step count if there exists duplicates
+    distinct(participant_id,date,.keep_all = TRUE)
+  
+  dat.DailySleep <- dat.DailySleep %>% 
+    arrange(participant_id,date,desc(sleep_count)) %>%  # remove duplicate and choose the lager daily sleep minutes if there exists duplicates
+    distinct(participant_id,date,.keep_all = TRUE) 
+  
+  dat.DailySurvey <- dat.DailySurvey %>% 
+    mutate(t_score=theta_score*10+50, t_se = standard_error*10) %>%
+    select(-c(theta_score,standard_error)) %>% 
+    arrange(participant_id,date,data_type,desc(t_score)) %>% 
+    distinct(participant_id,date,data_type,.keep_all = TRUE) %>% # remove duplicate and choose the lager t-score if there exists duplicates
+    pivot_wider(names_from = data_type,values_from = c(t_score,t_se,item_id))  # long format to wide format
+  
+  dat.DailyHeartRateZones <- dat.DailyHeartRateZones %>%
+    arrange(participant_id,date,out_of_range_minutes) %>%  # remove duplicate and replace it with larger out_of_range_minutes
+    distinct(participant_id,date,.keep_all = TRUE)
+  
+  ####################################
+  
+  # extract day 1 to day 90 data for each individual, day information comes from Final_Key Date.csv
+  dat.ImportantDates <- ImportantDates %>% filter(access_code %in% dat.Participants$access_code)
+  dat.Participants <- dat.Participants %>% inner_join(dat.ImportantDates,by = "access_code") %>%
+    select(participant_id,access_code,Type,day01,day90)
+  full_data = tibble()
+  for (i in 1:dim(dat.Participants)[1]){
+    full_data <- full_data %>% bind_rows(expand.grid(participant_id = dat.Participants$participant_id[i], 
+                                                     date = seq(dat.Participants$day01[i],dat.Participants$day90[i],by = 1),stringsAsFactors = FALSE))
+  }
+  full_data <- full_data %>% 
+    left_join(dat.Participants %>% select(participant_id,access_code,Type),by = "participant_id") %>% 
+    left_join(dat.DailySteps,by = c("participant_id","date")) %>%
+    left_join(dat.DailySleep, by = c("participant_id","date")) %>%
+    left_join(dat.DailySurvey, by = c("participant_id","date")) %>%
+    left_join(dat.DailyHeartRateZones, by = c("participant_id","date"))
+  
+  tmp <- tmp %>% bind_rows(full_data)
+}
+
+# remove 3 subjects who lose follow-up or incomplete
+drop_list = read_csv("../../AS_data/Support_Files/Final_Subject IDs and disposition.csv") %>% 
+  filter(studyend!=1) %>% 
+  rename(participant_id = participant_ID) %>%
+  pull(participant_id)
+tmp <- tmp %>% filter(!(participant_id %in% drop_list))
+
+# replace some values with na
+tmp <- tmp %>% mutate(step_count = na_if(step_count,0), # na if step count == 0
+                      sleep_count = na_if(sleep_count,0), # na if sleep minutes == 0
+                      out_of_range_minutes = if_else(is.na(resting_heart_rate),NA_real_,out_of_range_minutes),
+                      fat_burn_minutes = if_else(is.na(resting_heart_rate),NA_real_,fat_burn_minutes),
+                      cardio_minutes = if_else(is.na(resting_heart_rate),NA_real_,cardio_minutes),
+                      peak_minutes = if_else(is.na(resting_heart_rate),NA_real_,peak_minutes),
+                      total_minutes = if_else(is.na(resting_heart_rate),NA_real_,total_minutes))
+
+```
+
+# intervetion message types file
+```{r,message=FALSE}
+tmp1 = tibble()
+for (typeName in c("HCT - Intervention", "HD - Intervention", "SCI - Intervention")){
+  dat.DailyMsg = read_csv(paste("../../AS_data/",typeName,"/",typeName,"%2Finterventions_sent.csv",sep = "")) %>% 
+     mutate(date = as.Date(date_sent), msg_sent = 1) %>%
+    select(participant_id, date, data_type,msg_sent) %>%
+    rename(msg_type = data_type) %>% 
+    arrange(participant_id,date) %>% 
+    distinct(participant_id,date,.keep_all = TRUE)
+    
+  tmp1 = tmp1 %>% bind_rows(dat.DailyMsg)
+}
+```
+
+
+# save cleaned dataset to the file
+```{r}
+tmp = tmp %>% left_join(tmp1) %>% mutate(treatment = if_else(str_detect(Type,"Intervention"),1,0),
+                                         msg_sent = if_else(treatment == 1 & is.na(msg_sent), 0, msg_sent))
+# write to csv
+tmp %>% distinct() %>% write_csv("../../AS_data/Full Dataset/full_data.csv")
+```
+
+# extract baseline survey t-score
+```{r,message=FALSE}
+# tmp = tibble()
+# for (typeName in c("HCT - Control", "HCT - Intervention", "HD - Control", "HD - Intervention", "SCI - Control", "SCI - Intervention")){
+#   dat.Participants = read_csv(paste("../../AS_data/",typeName,"/",typeName,"%2Fparticipants.csv",sep = "")) %>% 
+#     mutate(Type = gsub(" ","",typeName)) %>% 
+#     select(id,access_code,Type) %>% rename(participant_id = id)
+#   dat.DailySurvey = read_csv(paste("../../AS_data/",typeName,"/",typeName,"%2Fdaily_surveys.csv",sep = "")) %>% 
+#     select(participant_id,completion_date,answer_value,t_score,data_type) %>%
+#     rename(date = completion_date)
+#   dat.DailySurvey <- dat.DailySurvey %>% 
+#     arrange(participant_id,date,data_type,desc(t_score)) %>% 
+#     distinct(participant_id,date,data_type,.keep_all = TRUE) %>% # remove duplicate
+#     pivot_wider(names_from = data_type,values_from = c(answer_value,t_score))  # long format to wide format
+#   dat.ImportantDates <- ImportantDates %>% filter(access_code %in% dat.Participants$access_code)
+#   dat.Participants <- dat.Participants %>% inner_join(dat.ImportantDates,by = "access_code") %>%
+#     select(participant_id,access_code,Type,day01,day90)
+#   
+#   tmp1 <- dat.Participants %>% select(participant_id,day01)
+#   tmp2 <- dat.DailySurvey %>% left_join(tmp1)
+#   tmp3 <- tmp2 %>% filter(date < day01)
+#   # print(min(tmp3 %>% count(participant_id) %>% pull(n))) # 3 is the smallest
+#   tmp = tmp %>% bind_rows(tmp3)
+# }
+# drop_list = read_csv("../../AS_data/Support_Files/Final_Subject IDs and disposition.csv") %>% 
+#   filter(studyend!=1) %>% 
+#   rename(participant_id = participant_ID) %>%
+#   pull(participant_id)
+# tmp <- tmp %>% filter(!(participant_id %in% drop_list))
+# 
+# # extract pre-trial t-score as the average t-score between day01 and 1 week before day01
+# tmp %>% mutate(date=as.Date(date)) %>% filter(date - day01 >= -7 & date - day01 < 0) %>% 
+#   select(participant_id,date,starts_with("t_score")) %>%
+#   group_by(participant_id) %>%
+#   summarise(across(contains("t_score"),mean,.names = "bl_{.col}",na.rm=TRUE)) %>%
+#   write_csv("../../AS_data/Full Dataset/baseline_t_scores.csv")
+#   
+```
+
+
+
+
+
+
+
+
+
+
