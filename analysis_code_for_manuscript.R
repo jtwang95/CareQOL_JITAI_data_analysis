@@ -14,9 +14,9 @@ options(digits=3)
 options(pillar.sigfig=3)
 
 if (.Platform$OS.type == "unix"){
-  prefix = "~/Dropbox (University of Michigan)/CareQOL Project/"
+  prefix = "~/Dropbox (University of Michigan)/CareQOL Project_working/"
 } else {
-  prefix = "C:/Users/jtwan/Dropbox (University of Michigan)/CareQOL Project/"
+  prefix = "C:/Users/jtwan/Dropbox (University of Michigan)/CareQOL Project_working/"
 }
 confint.geeglm <- function(object, parm, level = 0.95, ...) {
   cc <- coef(summary(object))
@@ -128,7 +128,41 @@ my_reflection_plot = function(fit,trt_name,trt_levels,mod_name,log=FALSE,reflect
   p + theme(legend.position = "none")
 }
 
-my_reflection_plot(fit=fit.stress_4lvl_step,trt_name = "msg_level",trt_levels = c("Low","Medium","High"),mod_name = "pre_week_step",log=TRUE)
+res_my_reflection_plot = function(fit,trt_name,trt_levels,mod_name,log=FALSE,reflect_point=FALSE,week=FALSE,q1=0.25,q2=0.75){
+  res = tibble()
+  if (is.numeric(trt_levels[1]))
+    bl_level = 0
+  else
+    bl_level = "None"
+  hist_dat = fit$data %>% pull(!!mod_name)
+  mod_range = seq(from=quantile(hist_dat,q1),to=quantile(hist_dat,q2),length.out=100)
+  hist_dat = hist_dat[hist_dat <= mod_range[length(mod_range)] & hist_dat >= mod_range[1]]
+  for (value in mod_range){
+    if ( week != TRUE){
+      input_trt = expand_grid(!!trt_name := trt_levels, !!mod_name := value,week=0,dem_sex="female",dem_age=60)
+      input_bl = expand_grid(!!trt_name := bl_level, !!mod_name := value,week=0,dem_sex="female",dem_age=60)
+    }else{
+      input_trt = expand_grid(!!trt_name := trt_levels, !!mod_name := value,dem_sex="female",dem_age=60)
+      input_bl = expand_grid(!!trt_name := bl_level, !!mod_name := value,dem_sex="female",dem_age=60)
+    }
+    if (log == TRUE){
+      effects = predict(fit,input_trt)-predict(fit,input_bl)
+      ses = calc_se(fit,input_trt,input_bl)
+      effects_ub = effects + 1.96 * ses
+      effects_lb = effects - 1.96 * ses
+    }else{
+      effect = predict(fit,input_trt) - predict(fit,input_bl)
+      ses = calc_se(fit,input_trt,input_bl)
+      effects_ub = effects + 1.96 * ses
+      effects_lb = effects - 1.96 * ses
+    }
+    names(effects) = trt_levels
+    res <- res %>% bind_rows(data.frame(effect=effects,effect_ub=effects_ub,effect_lb=effects_lb) %>% rownames_to_column("trt_level") %>% mutate(mod_value = value))
+  }
+  res
+}
+
+# my_reflection_plot(fit=fit.stress_4lvl_step,trt_name = "msg_level",trt_levels = c("Low","Medium","High"),mod_name = "pre_week_step",log=TRUE)
 
 # load data
 stress_item0 = "TBICQ_S32r"
@@ -163,6 +197,82 @@ filter1 = tmp %>% filter(!is.na(t_score_CaregiverStress)) %>%
   distinct(participant_id,week) # filter based on number of items per week and final standard error of t score
 anti_filter1 = tmp %>% filter(is.na(msg_sent)) %>% distinct(participant_id,week)
 anti_filter2 = tmp %>% filter(is.na(dem_sex)) %>% distinct(participant_id,week)
+################# zhenke requested plot
+# filter1 = tmp %>% filter(!is.na(t_score_CaregiverStress)) %>%
+#   arrange(participant_id,week,date) %>%
+#   group_by(participant_id,week) %>%
+#   mutate(count_items=n()) %>%
+#   filter(row_number() == n())  %>%
+#   ungroup() %>%
+#   filter((count_items >= 3)) %>%
+#   distinct(participant_id,week)
+# tmp0 = tmp %>% inner_join(filter1) %>%
+#   separate(Type,c("caregiver_group","group")) %>% filter(!is.na(t_score_CaregiverStress)) %>%
+#   arrange(participant_id,week) %>%
+#   group_by(participant_id,week) %>%
+#   filter(row_number() == n()) %>% ungroup() %>%
+#   select(participant_id,week,caregiver_group,group,t_score_CaregiverStress) %>%
+#   mutate(week=week+1)
+# png("~/Downloads/t_score_caregiverstress_indvidual_week_plot.png",width = 1200,height = 1200,res=200)
+# tmp0 %>%
+#   ggplot() + theme_bw() + 
+#   geom_line(aes(x=week,y=t_score_CaregiverStress,color=group,group=participant_id),size=0.8) +
+#   facet_wrap(~caregiver_group,nrow=3) + scale_x_continuous(breaks = c(1,2,3,4,5,6,7,8,9,10,11,12)) + 
+#   ylab("T score of Caregiver strain") + 
+#   xlab("Week") +
+#   scale_color_discrete(labels = c("Non-JITAI","JITAI"))
+# dev.off()
+# ###
+# filter1 = tmp %>% filter(!is.na(t_score_Worry)) %>%
+#   arrange(participant_id,week,date) %>%
+#   group_by(participant_id,week) %>%
+#   mutate(count_items=n()) %>%
+#   filter(row_number() == n())  %>%
+#   ungroup() %>%
+#   filter((count_items >= 3)) %>%
+#   distinct(participant_id,week)
+# tmp0 = tmp %>% inner_join(filter1) %>%
+#   separate(Type,c("caregiver_group","group")) %>% filter(!is.na(t_score_Worry)) %>%
+#   arrange(participant_id,week) %>%
+#   group_by(participant_id,week) %>%
+#   filter(row_number() == n()) %>% ungroup() %>%
+#   select(participant_id,week,caregiver_group,group,t_score_Worry) %>%
+#   mutate(week=week+1)
+# png("~/Downloads/t_score_worry_indvidual_week_plot.png",width = 1200,height = 1200,res=200)
+# tmp0 %>%
+#   ggplot() + theme_bw() + 
+#   geom_line(aes(x=week,y=t_score_Worry,color=group,group=participant_id),size=0.8) +
+#   facet_wrap(~caregiver_group,nrow=3) + scale_x_continuous(breaks = c(1,2,3,4,5,6,7,8,9,10,11,12)) + 
+#   ylab("T score of Anxiety") + 
+#   xlab("Week") +
+#   scale_color_discrete(labels = c("Non-JITAI","JITAI"))
+# dev.off()
+# ###
+# filter1 = tmp %>% filter(!is.na(t_score_Sadness)) %>%
+#   arrange(participant_id,week,date) %>%
+#   group_by(participant_id,week) %>%
+#   mutate(count_items=n()) %>%
+#   filter(row_number() == n())  %>%
+#   ungroup() %>%
+#   filter((count_items >= 3)) %>%
+#   distinct(participant_id,week)
+# tmp0 = tmp %>% inner_join(filter1) %>%
+#   separate(Type,c("caregiver_group","group")) %>% filter(!is.na(t_score_Sadness)) %>%
+#   arrange(participant_id,week) %>%
+#   group_by(participant_id,week) %>%
+#   filter(row_number() == n()) %>% ungroup() %>%
+#   select(participant_id,week,caregiver_group,group,t_score_Sadness) %>%
+#   mutate(week=week+1)
+# png("~/Downloads/t_score_sadness_indvidual_week_plot.png",width = 1200,height = 1200,res=200)
+# tmp0 %>%
+#   ggplot() + theme_bw() + 
+#   geom_line(aes(x=week,y=t_score_Sadness,color=group,group=participant_id),size=0.8) +
+#   facet_wrap(~caregiver_group,nrow=3) + scale_x_continuous(breaks = c(1,2,3,4,5,6,7,8,9,10,11,12)) + 
+#   ylab("T score of Depression") + 
+#   xlab("Week") +
+#   scale_color_discrete(labels = c("Non-JITAI","JITAI"))
+# dev.off()
+###########################
 
 # apply filters
 tmp0 = tmp %>% anti_join(anti_filter1) %>% anti_join(anti_filter2) %>% inner_join(filter1)
@@ -210,7 +320,7 @@ tmp1 = tmp0 %>%
   mutate(msg_level = factor(msg_level,levels = c("None","Low","Medium","High")))
 fit.stress_4lvl <- geeglm(log(t_score_CaregiverStress) ~ msg_level+week+dem_sex+dem_age,
                           data = tmp1,id = factor(participant_id),corstr = "i")
-
+summary(fit.stress_4lvl)
 my_forest_plot(fit.stress_4lvl,var_int = "msg_levelLow")
 exp(confint(fit.stress_4lvl)[c(2,3,4),c(1,2,3)])-1
 msg_none_tscore = exp(predict(fit.stress_4lvl,newdata = data.frame(msg_level="None",week=0,dem_sex="female",dem_age=mean(tmp1$dem_age,na.rm=TRUE))))
@@ -282,6 +392,13 @@ gdat %>% ggplot(aes(x=msg,y=est,color=subgroup)) +
   ylab("Estimate")+
   ggtitle("Caregiver Strain") + 
   scale_color_grey(start=0.0,end=0.6)
+
+gdat %>% select(msg,subgroup,est,lwr,upr) %>% mutate(across(where(is.numeric),~exp(.x)-1)) %>% arrange(subgroup)
+msg_none_tscore = exp(predict(fit.stress_4lvl_subgroup,newdata = data.frame(msg_level="None",week=0,dem_sex="female",dem_age=mean(tmp1$dem_age,na.rm=TRUE),Type=c("HCT-Intervention","HD-Intervention","SCI-Intervention"))))
+tscore0 = data.frame(tscore0 = msg_none_tscore,subgroup = c("HCT","HD","SCI")) %>% tibble()
+gdat %>% inner_join(tscore0) %>% select(msg,subgroup,est,lwr,upr,tscore0) %>%  
+  mutate(across(where(is.numeric),~tscore0 * (exp(.x)-1))) %>% arrange(subgroup)
+msg_none_tscore*(exp(confint(fit.stress_4lvl)[c(2,3,4),c(1,2,3)])-1)
 
 ##############################################   Worry ############################################################
 
@@ -425,6 +542,21 @@ gdat %>% ggplot(aes(x=msg,y=est,color=subgroup)) +
   ggtitle("Anxiety") + 
   scale_color_grey(start=0.0,end=0.6)
 
+# table number
+gdat %>% arrange(subgroup) %>%
+  mutate(across(c(est,lwr,upr),~round(.x,2))) %>%
+  unite(col="tmp",c(est,lwr,upr),sep = ",") %>% view()
+gdat %>% select(msg,subgroup,est,lwr,upr) %>% mutate(across(where(is.numeric),~exp(.x)-1)) %>% arrange(subgroup) %>%
+  mutate(across(c(est,lwr,upr),~round(.x,2))) %>%
+  unite(col="tmp",c(est,lwr,upr),sep = ",") %>% view()
+msg_none_tscore = exp(predict(fit.worry_4lvl_subgroup,newdata = data.frame(msg_level="None",week=0,dem_sex="female",dem_age=mean(tmp1$dem_age,na.rm=TRUE),Type=c("HCT-Intervention","HD-Intervention","SCI-Intervention"))))
+tscore0 = data.frame(tscore0 = msg_none_tscore,subgroup = c("HCT","HD","SCI")) %>% tibble()
+gdat %>% inner_join(tscore0) %>% select(msg,subgroup,est,lwr,upr,tscore0) %>%  
+  mutate(across(where(is.numeric),~tscore0 * (exp(.x)-1))) %>% arrange(subgroup) %>%
+  mutate(across(c(est,lwr,upr),~round(.x,2))) %>%
+  unite(col="tmp",c(est,lwr,upr),sep = ",") %>% view()
+
+
 ##############################################Sadness############################################################
 
 # inclusion criteria
@@ -507,7 +639,28 @@ dev.off()
 exp(predict(fit.sadness_4lvl_sadness,newdata = data.frame(msg_level = "High",week=0,dem_sex="female",dem_age=mean(tmp1$dem_age,na.rm=TRUE),pre_week_t_score_Sadness=40)))-exp(predict(fit.sadness_4lvl_sadness,newdata = data.frame(msg_level = "None",week=0,dem_sex="female",dem_age=mean(tmp1$dem_age,na.rm=TRUE),pre_week_t_score_Sadness=40)))
 exp(predict(fit.sadness_4lvl_sadness,newdata = data.frame(msg_level = "High",week=0,dem_sex="female",dem_age=mean(tmp1$dem_age,na.rm=TRUE),pre_week_t_score_Sadness=60)))-exp(predict(fit.sadness_4lvl_sadness,newdata = data.frame(msg_level = "None",week=0,dem_sex="female",dem_age=mean(tmp1$dem_age,na.rm=TRUE),pre_week_t_score_Sadness=60)))
 
-
+hist_dat = fit.sadness_4lvl_sadness$data %>% pull(pre_week_t_score_Sadness)
+mod_range = seq(from=quantile(hist_dat,0.25),to=quantile(hist_dat,0.75),length.out=100)
+hist_dat = hist_dat[hist_dat <= mod_range[length(mod_range)] & hist_dat >= mod_range[1]]
+res = res_my_reflection_plot(fit=fit.sadness_4lvl_sadness,trt_name = "msg_level",trt_levels = c("Low","Medium","High"),mod_name = "pre_week_t_score_Sadness",log=TRUE) %>%
+  mutate(trt_level = case_match(trt_level, "Low" ~ "Low Frequency", "Medium" ~ "Medium Frequency", "High" ~ "High Frequency")) %>% 
+  mutate(trt_level = factor(trt_level, levels=c("Low Frequency","Medium Frequency","High Frequency")))
+p = res %>% ggplot() + 
+  geom_hline(yintercept = 0, linetype="dashed") + 
+  geom_line(aes(x=mod_value,y=effect),size=1.0) +
+  geom_ribbon(aes(x=mod_value,ymin=effect_lb,ymax=effect_ub),alpha=0.2,color="black",linewidth=1.0,linetype="dashed")+
+  scale_y_continuous(name="Effect of the JITAI on weekly T score of depression",sec.axis = sec_axis(~. ,name="")) +
+  theme_bw() +
+  theme(axis.text.y.right = element_blank(),axis.ticks.y.right = element_blank()) +
+  xlab("Previous week's T score of depression")+
+  facet_wrap(~trt_level,ncol = 3)
+ylim_axis = layer_scales(p)$y$get_limits()
+p = p + 
+  geom_segment(aes(x=mod,xend=mod,y=ylim_axis[1],yend=1/5*diff(ylim_axis)/4+ylim_axis[1]),
+               data=data.frame(mod = hist_dat)) + 
+  theme(legend.position = "none") 
+# ggsave("~/Downloads/depression_effect_moderation.png",plot = p,width = 1200,height = 540,units = "px",dpi=100)
+ggsave("~/Downloads/depression_effect_moderation.jpeg",plot = p,width = 3600,height = 1620,units = "px",dpi=320,device = "jpeg",quality=100)
 
 # week-in-study
 fit.sadness_cnt_week <- geeglm(log(t_score_Sadness) ~ msg_num_upto_final_t_score *week+dem_sex+dem_age,
@@ -523,6 +676,7 @@ my_reflection_plot(fit=fit.sadness_4lvl_week,trt_name = "msg_level",trt_levels =
   ylab("Effect of the JITAI") +
   scale_x_continuous(breaks = c(0,1,2,3,4,5,6,7,8,9,10))
 dev.off()
+
 
 # previous week step count
 fit.sadness_cnt_step <- geeglm(log(t_score_Sadness) ~ msg_num_upto_final_t_score *log(pre_week_step) + week+dem_sex+dem_age,
@@ -574,9 +728,23 @@ gdat %>% ggplot(aes(x=msg,y=est,color=subgroup)) +
   ggtitle("Depression") + 
   scale_color_grey(start=0.0,end=0.6)
 
+# table number
+gdat %>% arrange(subgroup) %>%
+  mutate(across(c(est,lwr,upr),~round(.x,2))) %>%
+  unite(col="tmp",c(est,lwr,upr),sep = ",") %>% view()
+gdat %>% select(msg,subgroup,est,lwr,upr) %>% mutate(across(where(is.numeric),~exp(.x)-1)) %>% arrange(subgroup) %>%
+  mutate(across(c(est,lwr,upr),~round(.x,2))) %>%
+  unite(col="tmp",c(est,lwr,upr),sep = ",") %>% view()
+msg_none_tscore = exp(predict(fit.sadness_4lvl_subgroup,newdata = data.frame(msg_level="None",week=0,dem_sex="female",dem_age=mean(tmp1$dem_age,na.rm=TRUE),Type=c("HCT-Intervention","HD-Intervention","SCI-Intervention"))))
+tscore0 = data.frame(tscore0 = msg_none_tscore,subgroup = c("HCT","HD","SCI")) %>% tibble()
+gdat %>% inner_join(tscore0) %>% select(msg,subgroup,est,lwr,upr,tscore0) %>%  
+  mutate(across(where(is.numeric),~tscore0 * (exp(.x)-1))) %>% arrange(subgroup) %>%
+  mutate(across(c(est,lwr,upr),~round(.x,2))) %>%
+  unite(col="tmp",c(est,lwr,upr),sep = ",") %>% view()
 
 #######################
-png("~/../Downloads/subgroup_plot.png",width = 2000,height = 900,res=200)
+# png("~/Downloads/subgroup_plot.png",width = 1200,height = 540,res=320)
+jpeg("~/Downloads/subgroup_plot.jpeg",width = 3600,height = 1620,res=320,quality = 100)
 gdat_subgroup %>% ggplot(aes(x=msg,y=est,color=subgroup)) + 
   theme_bw() +
   geom_point(position = position_dodge(width=0.3),size=2) + 
@@ -588,162 +756,17 @@ gdat_subgroup %>% ggplot(aes(x=msg,y=est,color=subgroup)) +
   theme(text = element_text(size = 15))
 dev.off()
 
-############################################
-################ QIC #######################
-############################################
-# for (f in list(fit.stress_cnt,fit.stress_ord,fit.stress_bin)){
-#   print(QIC(f))
-# }
-# 
-# for (f in list(fit.worry_cnt,fit.worry_ord,fit.worry_bin)){
-#   print(QIC(f))
-# }
-# 
-# for (f in list(fit.sadness_cnt,fit.sadness_ord,fit.sadness_bin)){
-#   print(QIC(f))
-# }
-# 
-# 
-# 
-# 
-# 
-# 
-# 
-# 
-# 
-# 
-# 
-# 
-# 
-# 
-# 
-# 
-# 
-# 
-# 
-# 
-# 
-# 
-# #######################
-# # supplementary plots
-# tmp1 %>% ggplot(aes(y=msg_num_upto_final_t_score)) + geom_bar(stat = "count") +
-#   stat_count(aes(label = ..count..),geom = "text",position=position_stack(vjust=1.06),colour = "blue") + 
-#   scale_y_reverse(breaks = 0:7)
-# 
-# 
-# # sensitivity plot
-# tmp1 <- data.frame(est=c(-0.23,-0.51,-1.02),
-#                    lwr=c(-0.97,-1.23,-1.78),
-#                    upr=c(0.51,0.27,-0.26),
-#                    t_se_threshold=c(3,4,5))
-# ggplot(data=tmp1, 
-#        aes(x=t_se_threshold, y=est, ymin=lwr, ymax=upr)) +
-#   geom_pointrange(size=1) + 
-#   geom_hline(yintercept=0, lty=2) + 
-#   xlab("") + ylab("Mean (95% CI) of the effect of weekly msg num") +
-#   theme_bw() +
-#   theme(legend.position = "none") + 
-#   scale_x_continuous(breaks=c(3,4,5))
-# 
-# tmp1 = tmp %>% arrange(participant_id,date) %>% 
-#   filter(!is.na(t_se_CaregiverStress) & !is.na(msg_sent)) %>% 
-#   group_by(participant_id,week) %>% filter(row_number() == n())
-# tmp0 %>% arrange(participant_id,date) %>% 
-#   filter(!is.na(t_se_CaregiverStress) & !is.na(msg_sent)) %>% 
-#   group_by(participant_id,week) %>% filter(row_number() == n())
-# ggplot(tmp1) + geom_point(aes(x=t_score_CaregiverStress,y=t_se_CaregiverStress)) + 
-#   theme_bw() + geom_hline(yintercept = 3,linetype="dashed",color="red")
-# 
-# ##############################################Caregiver Stress############################################################
-# 
-# # inclusion criteria
-# filter1 = tmp %>% filter(!is.na(t_score_CaregiverStress)) %>%
-#   arrange(participant_id,week,date) %>%
-#   group_by(participant_id,week) %>%
-#   mutate(count_items=n()) %>%
-#   filter(row_number() == n())  %>%
-#   ungroup() %>%
-#   filter((count_items >= 3)) %>%
-#   distinct(participant_id,week) # filter based on number of items per week and final standard error of t score
-# anti_filter1 = tmp %>% filter(is.na(msg_sent)) %>% distinct(participant_id,week)
-# anti_filter2 = tmp %>% filter(is.na(dem_sex)) %>% distinct(participant_id,week)
-# 
-# # apply filters
-# tmp0 = tmp %>% anti_join(anti_filter1) %>% anti_join(anti_filter2) %>% inner_join(filter1)
-# tmp0_pre_measures = tmp0 %>% group_by(participant_id,week) %>% 
-#   summarise(pre_week_step = mean(step_count,na.rm=TRUE),
-#             pre_week_step_log = mean(log(step_count),na.rm=TRUE),
-#             pre_week_sleep = mean(sleep_count,na.rm=TRUE)) %>% 
-#   mutate(week = week + 1) %>% 
-#   ungroup() %>%
-#   mutate(across(starts_with("pre"),~.x-mean(.x,na.rm=TRUE)))
-# tmp0_pre_t_score_CaregiverStress = tmp0 %>% group_by(participant_id,week) %>% 
-#   filter(!is.na(t_score_CaregiverStress)) %>% 
-#   filter(row_number() == n()) %>%
-#   mutate(week = week + 1) %>% 
-#   ungroup() %>%
-#   select(participant_id,week,t_score_CaregiverStress) %>%
-#   rename(pre_week_t_score_CaregiverStress = t_score_CaregiverStress) %>%
-#   mutate(pre_week_t_score_CaregiverStress_log = log(pre_week_t_score_CaregiverStress)) %>%
-#   mutate(across(starts_with("pre"),~.x-mean(.x,na.rm=TRUE)))
-# tmp0_msg_num = tmp0 %>% mutate(final_t_score_weekday=as.integer(format(date,"%u"))) %>%
-#   group_by(participant_id,week) %>% 
-#   filter(!is.na(t_score_CaregiverStress)) %>% 
-#   filter(row_number() == n()) %>%
-#   select(participant_id,week,final_t_score_weekday) %>% 
-#   full_join(tmp0 %>% select(participant_id,week,msg_sent,date)%>% mutate(weekday=as.integer(format(date,"%u")))) %>%
-#   filter(final_t_score_weekday > weekday) %>%
-#   group_by(participant_id,week) %>%
-#   summarise(msg_num_upto_final_t_score = sum(msg_sent))
-# 
-# 
-# # analysis
-# ## get the latest values given partcipant_id and week
-# tmp1 = tmp0 %>%
-#   left_join(tmp0_msg_num) %>%
-#   filter(!is.na(t_score_CaregiverStress)) %>% 
-#   group_by(participant_id,week) %>%
-#   filter(row_number() == n()) %>% 
-#   inner_join(tmp0_pre_measures) %>% 
-#   inner_join(tmp0_pre_t_score_CaregiverStress) %>%
-#   mutate(msg_high = msg_num_upto_final_t_score >=3) %>% 
-#   ungroup() %>%
-#   mutate(week=week-mean(week))
-# fit.stress_cnt_test <- geeglm(log(t_score_CaregiverStress) ~ msg_num_upto_final_t_score*week+
-#                                 msg_num_upto_final_t_score*pre_week_t_score_CaregiverStress+
-#                                 msg_num_upto_final_t_score*pre_week_step_log+
-#                                 msg_num_upto_final_t_score*pre_week_sleep+
-#                                 dem_sex+dem_age,
-#                               data = tmp1 %>% filter(!is.na(pre_week_sleep)),id = factor(participant_id),corstr = "i")
-# fit.stress_ord_test <- geeglm(log(t_score_CaregiverStress) ~ factor(msg_num_upto_final_t_score)*week+
-#                                 factor(msg_num_upto_final_t_score)*pre_week_t_score_CaregiverStress+
-#                                 factor(msg_num_upto_final_t_score)*pre_week_step_log+
-#                                 factor(msg_num_upto_final_t_score)*pre_week_sleep+
-#                                 dem_sex+dem_age,
-#                               data = tmp1 %>% filter(!is.na(pre_week_sleep)),id = factor(participant_id),corstr = "i")
-# fit.stress_bin_test <- geeglm(log(t_score_CaregiverStress) ~ msg_high*week+
-#                                 msg_high*pre_week_t_score_CaregiverStress+
-#                                 msg_high*pre_week_step_log+
-#                                 msg_high*pre_week_sleep+
-#                                 dem_sex+dem_age,
-#                               data = tmp1 %>% filter(!is.na(pre_week_sleep)),id = factor(participant_id),corstr = "i")
-# my_forest_plot(fit.stress_cnt_test)
-# my_forest_plot(fit.stress_ord_test)
-# my_forest_plot(fit.stress_bin_test)
-# ggarrange(my_forest_plot(fit.stress_cnt_test),my_forest_plot(fit.stress_ord_test),my_forest_plot(fit.stress_bin_test))
-# 
-# 
-# fit.stress_cnt_test2 <- geeglm(log(t_score_CaregiverStress) ~ msg_num_upto_final_t_score+week+pre_week_t_score_CaregiverStress+pre_week_step_log+pre_week_sleep+dem_sex+dem_age,
-#                                data = tmp1 %>% filter(!is.na(pre_week_sleep)),id = factor(participant_id),corstr = "i")
-# fit.stress_ord_test2 <- geeglm(log(t_score_CaregiverStress) ~ factor(msg_num_upto_final_t_score)+week+pre_week_t_score_CaregiverStress+pre_week_step_log+pre_week_sleep+
-#                                  dem_sex+dem_age,
-#                                data = tmp1 %>% filter(!is.na(pre_week_sleep)),id = factor(participant_id),corstr = "i")
-# fit.stress_bin_test2 <- geeglm(log(t_score_CaregiverStress) ~ msg_high+week+pre_week_t_score_CaregiverStress+pre_week_step_log+pre_week_sleep+
-#                                  dem_sex+dem_age,
-#                                data = tmp1 %>% filter(!is.na(pre_week_sleep)),id = factor(participant_id),corstr = "i")
-# my_forest_plot(fit.stress_cnt_test2)
-# my_forest_plot(fit.stress_ord_test2)
-# my_forest_plot(fit.stress_bin_test2)
-# ggarrange(my_forest_plot(fit.stress_cnt_test2),my_forest_plot(fit.stress_ord_test2),my_forest_plot(fit.stress_bin_test2))
-# 
-# 
+## revision 1 for JMIR
+tmp %>% select(starts_with("t_score"),step_count,sleep_count) %>% ungroup() %>% 
+  summarize(across(where(is.numeric),.fns = ~ mean(is.na(.x))))
+# t_score_CaregiverStress t_score_Sadness t_score_Worry step_count sleep_count
+# <dbl>           <dbl>         <dbl>      <dbl>       <dbl>
+#
+# 1                  0.0968          0.0970        0.0971     0.0281       0.142
+tmp %>% select(starts_with("t_score"),step_count,sleep_count) %>% ungroup() %>% 
+  summarize(across(where(is.numeric),.fns = ~ sum(is.na(.x))))
+# t_score_CaregiverStress t_score_Sadness t_score_Worry step_count sleep_count
+# <int>           <int>         <int>      <int>       <int>
+#   1                     561             562           563        163         822
+tmp %>% select(starts_with("t_score"),step_count,sleep_count) %>% ungroup() %>% nrow() # 5796
+tmp
